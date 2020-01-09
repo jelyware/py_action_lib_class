@@ -8,16 +8,20 @@ FAILED = 1
 DEBUG = 0
 
 class MonitorActionStats:
+    ActionStats = []
+
     def __init__(self):
-        self.actionStats = []
+        pass
 
     def addAction(JSONstring):
-    '''
-        Adds actions and maintains their avg time.
-        Param(s): serialized JSON string
-    '''
+        '''
+            Adds actions and maintains their avg time.
+            Param(s): serialized JSON string
+        '''
         if not JSONstring:
-            print("addAction Failed: No argument provided.")
+            print("addAction Failed: Invalid or empty argument")
+            if DEBUG:
+                print("addAction argument = %s" % repr(JSONstring))
             return FAILED
 
         newActionStat = json.loads(JSONstring)
@@ -25,28 +29,30 @@ class MonitorActionStats:
 
         action = newActionStat['action']
         newTime = newActionStat['time']
-        actStatIdx = self.search(self.actionStats, len(self.actionStats), action)
+        actStatIdx = self._search(ActionStats, len(ActionStats), action)
         if actStatIdx:
-            currAvgTime = self.actionStats[actStatIdx]['time']
+            currTime = ActionStats[actStatIdx]['time']
             newActionStat['count'] += 1
-            self.actionStats[actStatIdx]['time'] = (currAvgTime + newTime) / newActionStat['count']
+            ActionStats[actStatIdx]['time'] = long(currTime + newTime)
         else:
             newActionStat['count'] = 1
-            self.actionStats.append(newActionStat)
+            newActionStat['time'] = long(newActionStat['time'])
+            ActionStats.append(newActionStat)
         return status
 
     def getStats(self):
-    ''' Returns actions and their average times in serialized JSON'''
-        actionStatsCopy = list(self.actionStats)
+        ''' Returns actions and their average times in serialized JSON'''
+        actionStatsCopy = list(ActionStats)
         for stat in actionStatsCopy:
+            stat['time'] = stat['time'] / stat['count']
             stat.pop(stat['count'])
         if DEBUG:
             print(actionStatsCopy)
         return json.dumps(actionStatsCopy)
 
 
-    def search(self, arr, n, elem):
-    ''' Reference: https://www.geeksforgeeks.org/front-and-back-search-in-unsorted-array/'''
+    def _search(self, arr, n, elem):
+        ''' Reference: https://www.geeksforgeeks.org/front-and-back-search-in-unsorted-array/'''
         front = 0
         back = n - 1
         found = False
@@ -60,6 +66,6 @@ class MonitorActionStats:
             back -= 1
 
         if found:
-            elemIdx = self.actionStats.index(elem)
+            elemIdx = ActionStats.index(elem)
 
         return elemIdx
