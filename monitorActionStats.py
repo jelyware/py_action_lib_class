@@ -37,97 +37,94 @@ class MonitorActionStats:
             if DEBUG:
                 print("In addAction(): New action stat = ", newActionStat)
             if newActionStat != {} and self._validateNewActionStat(newActionStat) == SUCCESS:
-                print("STARTING TO ADD ACTION")
                 action = newActionStat['action']
-                print("action", action)
                 newTime = newActionStat['time']
-                print("time", newTime)
                 if ActionStats.LOCK.acquire():
-                    actStatIdx = self._search(ActionStats.STATS, len(ActionStats.STATS), action)
-                    print("actStatIdx", actStatIdx)
+                    actStatIdx = self._searchStats(ActionStats.STATS, len(ActionStats.STATS), action)
                     if actStatIdx != None:
-                        print("EXISTING ACTION NEEDS TOTAL TIME UPDATED")
-                        print("ACQUIRING LOCK TO UPDATE EXISTING ACTION")
+                        if DEBUG:
+                            print("EXISTING ACTION NEEDS UPDATED")
+                            print("ACQUIRING LOCK to update existing action.")
                         currTime = ActionStats.STATS[actStatIdx]['time']
                         ActionStats.STATS[actStatIdx]['count'] += 1
-                        print("########## Existing action stat to update: ", newActionStat)
-                        print("########## Action Stats (before new action added): ",ActionStats.STATS)
                         ActionStats.STATS[actStatIdx]['time'] = int(currTime + newTime)
-                        print("########## Action Stats (before new action added): ",ActionStats.STATS)
                         ActionStats.LOCK.release()
-                        print("LOCK RELEASED - DONE UPDATING EXISTING ACTION")
+                        if DEBUG:
+                            print("LOCK RELEASED: Done updating existing action.")
                         status = SUCCESS
                     else:
-                        print("NEW ACTION NEEDS ADDED")
-                        print("ACQUIRING LOCK TO ADD NEW ACTION")
+                        if DEBUG:
+                            print("NEW ACTION NEEDS ADDED")
+                            print("ACQUIRING LOCK to add new action.")
                         #if ActionStats.LOCK.acquire():
                         newActionStat['time'] = int(newActionStat['time'])
-                        print("########## New action stat to add: ", newActionStat)
-                        print("########## Action Stats (before new action added): ",ActionStats.STATS)
                         ActionStats.STATS.append(newActionStat)
-                        print("########## Action Stats (after new action added): ",ActionStats.STATS)
                         ActionStats.LOCK.release()
-                        print("LOCK RELEASED - DONE ADDING NEW ACTION")
+                        if DEBUG:
+                            print("LOCK RELEASED - Done adding new action.")
                         status = SUCCESS
         except Exception as exc:
-            print("***ADD ACTION IS FAILING FOR:",exc)
+            print("addAction() EXCEPTION: ", exc)
             print_exc()
 
-        print("EXITING ADD ACTION WITH STATUS =", status, get_ident())
+        if DEBUG:
+            print("EXITING ADD ACTION with status: %d, thread: %d", (status, get_ident()))
         return status
 
     #---------------------------------------------------------------------------#
     def getStats(self):
-        ''' Returns actions and their average times in serialized JSON'''
+        '''
+            Returns actions and their average times in serialized JSON.
+        '''
         jsonifiedCopy = []
         try:
-            print("ACQUIRING LOCK TO GET STATS")
+            if DEBUG:
+                print("ACQUIRING LOCK TO GET STATS")
             if ActionStats.LOCK.acquire():
-                print("ActionStats.STATS",ActionStats.STATS)
                 actionStatsCopy = deepcopy(ActionStats.STATS)
                 ActionStats.LOCK.release()
-                print("RELEASING LOCK TO GET STATS")
-                print("actionStatsCopy",actionStatsCopy)
+                if DEBUG:
+                    print("RELEASING LOCK TO GET STATS")
+                # Calculate avg time per action and cleanup 'count'
                 for stat in actionStatsCopy:
-                    print("stat",stat, "stat[count]=", stat['count'], " stat[time]=", stat['time'])
                     stat['time'] = stat['time'] / stat['count']
                     stat.pop('count')
                 if DEBUG:
-                    print("actionStatsCopy in DEBUG",actionStatsCopy)
+                    print("actionStatsCopy", actionStatsCopy)
                 jsonifiedCopy = json.dumps(actionStatsCopy)
             else:
-                print("getStats Failed: Failed to acquire ActionStats.LOCK.")
+                print("getStats(): Failed to acquire ActionStats.LOCK.")
         except Exception as exc:
-            print("GET STATS EXCEPTION",exc)
+            print("getStats() EXCEPTION: ", exc)
             print_exc()
-        print("jsonifiedCopy",jsonifiedCopy)
+
+        if DEBUG:
+            print("EXITING GET STATS with status: %d, thread: %d", (status, get_ident()))
         return jsonifiedCopy
 
     #---------------------------------------------------------------------------#
-    def _search(self, arr, n, elem):
+    def _searchStats(self, arr, n, elem):
         '''
-            Use to achieve O(n/2) complexity when searching action statistics.
+            Search action statistics for specified action (elem).
+            Worst time complexity: O(n/2)
             Reference: https://www.geeksforgeeks.org/front-and-back-search-in-unsorted-array/
         '''
         front = 0
         back = n - 1
         found = False
         elemIdx = None
-        print("****************SEARCHING FOR:",elem)
         # Keep searching while two indexes do not cross.
         while (front <= back):
-            print("arr[front]",arr[front], "front",front, arr[front]['action'])
-            print("arr[back]",arr[back], "back",back, arr[back]['action'])
             if (arr[front]['action'] == elem):
                 elemIdx = front
             elif (arr[back]['action'] == elem):
                 elemIdx = back
             if elemIdx is not None:
-                print("!!!!!!!!!!!!  Found: ", elem, "at elemIdx", elemIdx)
                 break
             front += 1
             back -= 1
-
+        if DEBUG:
+            print("EXITING SEARCH STATS with status: %d, thread: %d", (status, get_ident()))
         return elemIdx
 
     #---------------------------------------------------------------------------#
@@ -169,7 +166,7 @@ class MonitorActionStats:
             print("New action stat type: ", type(stat))
 
         if DEBUG:
-            print("EXITING VALIDATION with status: ", status)
+            print("EXITING VALIDATION with status: %d, thread: %d", (status, get_ident()))
         return status
 
     #---------------------------------------------------------------------------#
