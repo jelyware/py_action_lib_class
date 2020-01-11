@@ -44,6 +44,7 @@ The two primary functions in MonitorActionStats are:
 
 ### Knowns:
 - Integers in Python 3 have unlimited precision (replacing long int).
+- The Global Interpreter Lock (GIL) in Python locks each thread and releases based on byte code.
 
 ## Instructions
 - Install Python 3.7.x if not already installed (Python 2.7.x legacy support is not included).
