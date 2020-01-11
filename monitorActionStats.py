@@ -1,10 +1,21 @@
 import json
-from threading import Lock
+from copy import deepcopy
+from threading import Lock, get_ident
+from traceback import print_exc
 
-SUCCESS = 1
-FAILED = 0
+SUCCESS = 0
+FAILED = 1
 
-DEBUG = 0
+DEBUG = False   # Enable for testing only
+
+class ActionStats:
+    '''
+        Static class for shared data:
+            STATS:  Action statistics, a list of action stat dictionaries.
+            LOCK:   Used to serialize access to STATS.
+    '''
+    STATS = []
+    LOCK = Lock()
 
 class MonitorActionStats:
     '''
@@ -12,9 +23,8 @@ class MonitorActionStats:
         of various actions.  Provides a statistics getter function.  Accounts
         for concurrent end user calls to all public functions using Lock().
     '''
-    ActionStats = []
-    ActionStatsLock = Lock()
 
+    #---------------------------------------------------------------------------#
     def addAction(self, newAction):
         '''
             Adds newAction, a serialized JSON string containing action and
@@ -22,72 +32,110 @@ class MonitorActionStats:
             each action (total time is used to calculate avg time).
         '''
         status = FAILED
-        newActionStat = getNewActionStatDict(newAction)
-        if newActionStat != {} and _validateNewActionStat(newActionStat):
-            action = newActionStat['action']
-            newTime = newActionStat['time']
-            actStatIdx = self._search(ActionStats, len(ActionStats), action)
-            if actStatIdx:
-                if ActionStatsLock.acquire():
-                    currTime = ActionStats[actStatIdx]['time']
-                    newActionStat['count'] += 1
-                    ActionStats[actStatIdx]['time'] = long(currTime + newTime)
-                    ActionStatsLock.release()
-                    status = SUCCESS
-            else:
-                if ActionStatsLock.acquire():
-                    newActionStat['count'] = 1
-                    newActionStat['time'] = long(newActionStat['time'])
-                    ActionStats.append(newActionStat)
-                    ActionStatsLock.release()
-                    status = SUCCESS
+        try:
+            newActionStat = self._getNewActionStatDict(newAction)
+            if DEBUG:
+                print("In addAction(): New action stat = ", newActionStat)
+            if newActionStat != {} and self._validateNewActionStat(newActionStat) == SUCCESS:
+                print("STARTING TO ADD ACTION")
+                action = newActionStat['action']
+                print("action", action)
+                newTime = newActionStat['time']
+                print("time", newTime)
+                if ActionStats.LOCK.acquire():
+                    actStatIdx = self._search(ActionStats.STATS, len(ActionStats.STATS), action)
+                    print("actStatIdx", actStatIdx)
+                    if actStatIdx != None:
+                        print("EXISTING ACTION NEEDS TOTAL TIME UPDATED")
+                        print("ACQUIRING LOCK TO UPDATE EXISTING ACTION")
+                        currTime = ActionStats.STATS[actStatIdx]['time']
+                        ActionStats.STATS[actStatIdx]['count'] += 1
+                        print("########## Existing action stat to update: ", newActionStat)
+                        print("########## Action Stats (before new action added): ",ActionStats.STATS)
+                        ActionStats.STATS[actStatIdx]['time'] = int(currTime + newTime)
+                        print("########## Action Stats (before new action added): ",ActionStats.STATS)
+                        ActionStats.LOCK.release()
+                        print("LOCK RELEASED - DONE UPDATING EXISTING ACTION")
+                        status = SUCCESS
+                    else:
+                        print("NEW ACTION NEEDS ADDED")
+                        print("ACQUIRING LOCK TO ADD NEW ACTION")
+                        #if ActionStats.LOCK.acquire():
+                        newActionStat['time'] = int(newActionStat['time'])
+                        print("########## New action stat to add: ", newActionStat)
+                        print("########## Action Stats (before new action added): ",ActionStats.STATS)
+                        ActionStats.STATS.append(newActionStat)
+                        print("########## Action Stats (after new action added): ",ActionStats.STATS)
+                        ActionStats.LOCK.release()
+                        print("LOCK RELEASED - DONE ADDING NEW ACTION")
+                        status = SUCCESS
+        except Exception as exc:
+            print("***ADD ACTION IS FAILING FOR:",exc)
+            print_exc()
+
+        print("EXITING ADD ACTION WITH STATUS =", status, get_ident())
         return status
 
+    #---------------------------------------------------------------------------#
     def getStats(self):
         ''' Returns actions and their average times in serialized JSON'''
-        jsonCopy = []
-        if ActionStatsLock.acquire():
-            actionStatsCopy = list(ActionStats)
-            ActionStatsLock.release()
-            for stat in actionStatsCopy:
-                stat['time'] = stat['time'] / stat['count']
-                stat.pop(stat['count'])
-            if DEBUG:
-                print(actionStatsCopy)
-            jsonifiedCopy = json.dumps(actionStatsCopy)
-        else:
-            print("getStats Failed: Failed to acquire ActionStatsLock.")
+        jsonifiedCopy = []
+        try:
+            print("ACQUIRING LOCK TO GET STATS")
+            if ActionStats.LOCK.acquire():
+                print("ActionStats.STATS",ActionStats.STATS)
+                actionStatsCopy = deepcopy(ActionStats.STATS)
+                ActionStats.LOCK.release()
+                print("RELEASING LOCK TO GET STATS")
+                print("actionStatsCopy",actionStatsCopy)
+                for stat in actionStatsCopy:
+                    print("stat",stat, "stat[count]=", stat['count'], " stat[time]=", stat['time'])
+                    stat['time'] = stat['time'] / stat['count']
+                    stat.pop('count')
+                if DEBUG:
+                    print("actionStatsCopy in DEBUG",actionStatsCopy)
+                jsonifiedCopy = json.dumps(actionStatsCopy)
+            else:
+                print("getStats Failed: Failed to acquire ActionStats.LOCK.")
+        except Exception as exc:
+            print("GET STATS EXCEPTION",exc)
+            print_exc()
+        print("jsonifiedCopy",jsonifiedCopy)
         return jsonifiedCopy
 
-
+    #---------------------------------------------------------------------------#
     def _search(self, arr, n, elem):
         '''
-            Use to achieve O(n/2) complexity when searching action statistics dictionary.
+            Use to achieve O(n/2) complexity when searching action statistics.
             Reference: https://www.geeksforgeeks.org/front-and-back-search-in-unsorted-array/
         '''
         front = 0
         back = n - 1
         found = False
         elemIdx = None
-
+        print("****************SEARCHING FOR:",elem)
         # Keep searching while two indexes do not cross.
         while (front <= back):
-            if (arr[front] == elem or arr[back] == elem):
-                found = True
+            print("arr[front]",arr[front], "front",front, arr[front]['action'])
+            print("arr[back]",arr[back], "back",back, arr[back]['action'])
+            if (arr[front]['action'] == elem):
+                elemIdx = front
+            elif (arr[back]['action'] == elem):
+                elemIdx = back
+            if elemIdx is not None:
+                print("!!!!!!!!!!!!  Found: ", elem, "at elemIdx", elemIdx)
+                break
             front += 1
             back -= 1
 
-        if found:
-            elemIdx = ActionStats.index(elem)
-
         return elemIdx
 
-
-    def _validateNewActionStat(stat):
+    #---------------------------------------------------------------------------#
+    def _validateNewActionStat(self, stat):
         '''
             Validate new action stat dictionary after actionAdd() argument
-            deserialized. TODO: Create/use custom error codes or error classes to
-            remove print statement clutter.
+            deserialized. TODO: Create/use custom error codes or error classes
+            to remove print statement clutter.
         '''
         status = FAILED
         # Check for valid dict type of stat arg
@@ -120,21 +168,26 @@ class MonitorActionStats:
                 + "Invalid type - new action stat should be dict type: ", repr(stat))
             print("New action stat type: ", type(stat))
 
+        if DEBUG:
+            print("EXITING VALIDATION with status: ", status)
         return status
 
-
-    def _getNewActionStatDict(newAction):
+    #---------------------------------------------------------------------------#
+    def _getNewActionStatDict(self, newAction):
         '''
             Deserializes newAction, a serialized JSON string. Returns dictionary
-            that contains action to add.
+            that contains action to add, example: {'action':'run', 'time': 100, 'count': 1}.
+            Count added to track duplicate actions - used to calculate avg time.
         '''
         newActionStat = {}
         if not newAction:
             print("[_getNewActionStatDict() Failed] " \
                 + "Invalid or emtpy addAction() argument: ", repr(newAction))
         try:
-            # Deserialize JSON string containing new action stat dictionary
+            # Deserialize JSON string containing new action stat dict.
             newActionStat = json.loads(newAction)
+            # Add count and initialize to 1.
+            newActionStat['count'] = 1
         except Exception as ec:
             print("[_getNewActionStatDict() Failed] " \
                 + "Could not deserialize addAction() argument: ", ec)
